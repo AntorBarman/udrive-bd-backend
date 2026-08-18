@@ -3,11 +3,15 @@ const cors = require('cors');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
 require('dotenv').config();
-const testRoutes = require('./routes/testRoutes');
 
 const authRoutes = require('./routes/authRoutes');
+const vehicleRoutes = require('./routes/vehicleRoutes');
+const testRoutes = require('./routes/testRoutes');
 const errorHandler = require('./middlewares/errorHandler');
 const ApiError = require('./utils/ApiError');
+const bookingRoutes = require('./routes/bookingRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
+const walletRoutes = require('./routes/walletRoutes');
 
 const app = express();
 
@@ -35,7 +39,11 @@ app.get('/api/health', (req, res) => {
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/test', testRoutes);
+app.use('/api/bookings', bookingRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/wallet', walletRoutes);
 
 // 404 handler
 app.use((req, res, next) => {
