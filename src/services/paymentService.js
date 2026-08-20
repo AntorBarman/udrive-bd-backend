@@ -4,9 +4,12 @@ const commissionService = require('./commissionService');
 const { createSSLCommerzInstance } = require('../config/sslcommerz');
 const ApiError = require('../utils/ApiError');
 const db = require('../config/database');
+const { generateTransactionId } = require('../utils/transactionId');
 
 class PaymentService {
   async initiatePayment(bookingId, userId) {
+    console.log('🔍 Initiate payment:', { bookingId, userId });
+    
     const booking = await bookingRepository.findById(bookingId);
     
     if (!booking) {
@@ -21,8 +24,12 @@ class PaymentService {
       throw ApiError.badRequest(`Booking status is ${booking.status}, cannot initiate payment`);
     }
     
-    const transactionId = `UDRIVE_${Date.now()}_${bookingId.slice(0, 8)}`;
+    // ✅ Use utility function
+    const transactionId = generateTransactionId('UDRIVE');
     const bookingAmount = Number(booking.total_amount);
+    
+    console.log('💰 Payment amount:', bookingAmount);
+    console.log('🔑 Transaction ID:', transactionId);
     
     const payment = await paymentRepository.create({
       bookingId,
@@ -66,7 +73,10 @@ class PaymentService {
     };
     
     try {
+      console.log('🔍 Calling SSLCommerz init...');
       const response = await sslcommerz.init(paymentData);
+      
+      console.log('🔍 SSLCommerz Response:', JSON.stringify(response, null, 2));
       
       if (response.status === 'FAILED') {
         await paymentRepository.updateStatus(payment.id, 'failed', response);
@@ -75,13 +85,22 @@ class PaymentService {
       
       await paymentRepository.updateStatus(payment.id, 'pending', response);
       
+      const gatewayUrl = response.GatewayPageURL || response.redirectGatewayURL;
+      
+      console.log('✅ Gateway URL:', gatewayUrl);
+      
+      if (!gatewayUrl) {
+        throw new Error('Gateway URL not received from SSLCommerz');
+      }
+      
       return {
         paymentId: payment.id,
         transactionId,
-        gatewayUrl: response.GatewayPageURL || response.redirectGatewayURL,
+        gatewayUrl,
         amount: bookingAmount,
       };
     } catch (error) {
+      console.error('❌ SSLCommerz Error:', error.message);
       await paymentRepository.updateStatus(payment.id, 'failed', { error: error.message });
       throw ApiError.badRequest('Payment initiation failed: ' + error.message);
     }
@@ -105,9 +124,9 @@ class PaymentService {
       throw ApiError.notFound('Payment not found');
     }
     
-    // Idempotency check
+    // Idempotency check - already processed
     if (existingPayment.status === 'paid') {
-      console.log('✅ Payment already processed');
+      console.log('✅ Payment already processed (idempotent)');
       return {
         success: true,
         message: 'Payment already processed',
@@ -131,14 +150,21 @@ class PaymentService {
       
       // 1. Update payment status
       await client.query(
-        `UPDATE payments SET status = 'paid', validated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        `UPDATE payments 
+         SET status = 'paid', 
+             validated_at = CURRENT_TIMESTAMP, 
+             updated_at = CURRENT_TIMESTAMP 
+         WHERE id = $1`,
         [existingPayment.id]
       );
       console.log('✅ Payment marked as paid');
       
       // 2. Update booking status
       await client.query(
-        `UPDATE bookings SET status = 'confirmed', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        `UPDATE bookings 
+         SET status = 'confirmed', 
+             updated_at = CURRENT_TIMESTAMP 
+         WHERE id = $1`,
         [booking.id]
       );
       console.log('✅ Booking confirmed');
@@ -160,7 +186,7 @@ class PaymentService {
       );
       console.log('✅ Customer wallet debited');
       
-      // 4. Commission split
+      // 4. Commission split (owner 85%, platform 15%)
       await commissionService.processCommissionSplit(client, booking, existingPayment);
       console.log('✅ Commission split completed');
       
@@ -185,6 +211,8 @@ class PaymentService {
   }
   
   async handlePaymentFail(transactionId) {
+    console.log('🔍 Payment failed:', transactionId);
+    
     const payment = await paymentRepository.findByTransactionId(transactionId);
     
     if (payment) {
@@ -195,6 +223,8 @@ class PaymentService {
   }
   
   async handlePaymentCancel(transactionId) {
+    console.log('🔍 Payment cancelled:', transactionId);
+    
     const payment = await paymentRepository.findByTransactionId(transactionId);
     
     if (payment) {
@@ -212,10 +242,20 @@ class PaymentService {
     }
     
     const booking = await bookingRepository.findById(bookingId);
-    if (booking.customer_id !== userId && booking.owner_id !== userId) {
+    
+    if (!booking) {
+      throw ApiError.notFound('Booking not found');
+    }
+    
+    // Check ownership
+    const isCustomer = booking.customer_id === userId;
+    const isOwner = booking.owner_id === userId;
+    
+    if (!isCustomer && !isOwner) {
       throw ApiError.forbidden('You do not have permission to view this payment');
     }
     
+    // Return latest payment
     return payments[0];
   }
 }

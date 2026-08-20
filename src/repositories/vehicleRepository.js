@@ -2,15 +2,25 @@ const db = require('../config/database');
 
 class VehicleRepository {
     async create(vehicleData) {
-        const query = `
-      INSERT INTO vehicles (
-        owner_id, branch_id, brand, model, year, vehicle_type,
-        transmission, fuel_type, seats, color, registration_number,
-        description, daily_rate, deposit_amount
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-      RETURNING *
+        const dataQuery = `
+        SELECT v.*, 
+            b.name as branch_name,
+            COALESCE(
+                (SELECT vi.image_url FROM vehicle_images vi 
+                WHERE vi.vehicle_id = v.id AND vi.is_primary = TRUE 
+                LIMIT 1),
+                (SELECT vi.image_url FROM vehicle_images vi 
+                WHERE vi.vehicle_id = v.id 
+                ORDER BY vi.created_at ASC 
+                LIMIT 1)
+            ) as primary_image
+        FROM vehicles v
+        JOIN branches b ON v.branch_id = b.id
+        WHERE ${whereClause}
+        ORDER BY v.${sortBy} ${sortOrder}
+        LIMIT ${limitParam} OFFSET ${offsetParam}
     `;
+
 
         const params = [
             vehicleData.ownerId,
@@ -35,22 +45,44 @@ class VehicleRepository {
 
     async findById(id) {
         const query = `
-      SELECT v.*, 
-             b.name as branch_name,
-             b.address as branch_address,
-             u.name as owner_name,
-             u.email as owner_email,
-             u.phone as owner_phone
-      FROM vehicles v
-      JOIN branches b ON v.branch_id = b.id
-      JOIN users u ON v.owner_id = u.id
-      WHERE v.id = $1 AND v.is_deleted = FALSE
-    `;
+            SELECT v.*, 
+                b.name as branch_name,
+                b.address as branch_address,
+                u.name as owner_name,
+                u.email as owner_email,
+                u.phone as owner_phone,
+                COALESCE(
+                    (SELECT vi.image_url FROM vehicle_images vi 
+                    WHERE vi.vehicle_id = v.id AND vi.is_primary = TRUE 
+                    LIMIT 1),
+                    (SELECT vi.image_url FROM vehicle_images vi 
+                    WHERE vi.vehicle_id = v.id 
+                    ORDER BY vi.created_at ASC 
+                    LIMIT 1)
+                ) as primary_image
+            FROM vehicles v
+            JOIN branches b ON v.branch_id = b.id
+            JOIN users u ON v.owner_id = u.id
+            WHERE v.id = $1 AND v.is_deleted = FALSE
+        `;
 
         const result = await db.query(query, [id]);
-        return result.rows[0];
-    }
+        const vehicle = result.rows[0];
 
+        if (vehicle) {
+            // Get all images
+            const imagesQuery = `
+            SELECT id, image_url, public_id, is_primary, display_order
+            FROM vehicle_images
+            WHERE vehicle_id = $1
+            ORDER BY is_primary DESC, display_order ASC
+            `;
+            const imagesResult = await db.query(imagesQuery, [id]);
+            vehicle.images = imagesResult.rows;
+        }
+
+        return vehicle;
+    }
     async findByOwnerId(ownerId) {
         const query = `
       SELECT v.*, b.name as branch_name
@@ -188,15 +220,17 @@ class VehicleRepository {
         dataParams.push(offset);
 
         const dataQuery = `
-      SELECT v.*, 
-             b.name as branch_name,
-             (SELECT image_url FROM vehicle_images vi WHERE vi.vehicle_id = v.id AND vi.is_primary = TRUE LIMIT 1) as primary_image
-      FROM vehicles v
-      JOIN branches b ON v.branch_id = b.id
-      WHERE ${whereClause}
-      ORDER BY v.${sortBy} ${sortOrder}
-      LIMIT ${limitParam} OFFSET ${offsetParam}
-    `;
+            SELECT v.*, 
+                    b.name as branch_name,
+                    (SELECT vi.image_url FROM vehicle_images vi 
+                    WHERE vi.vehicle_id = v.id AND vi.is_primary = TRUE 
+                    LIMIT 1) as primary_image
+            FROM vehicles v
+            JOIN branches b ON v.branch_id = b.id
+            WHERE ${whereClause}
+            ORDER BY v.${sortBy} ${sortOrder}
+            LIMIT ${limitParam} OFFSET ${offsetParam}
+            `;
 
         const dataResult = await db.query(dataQuery, dataParams);
 
