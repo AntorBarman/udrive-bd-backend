@@ -11,11 +11,39 @@ const {
 
 const router = express.Router();
 
-// Public routes
-router.get('/', validateSearchQuery, vehicleController.searchVehicles);
-router.get('/:id', vehicleController.getVehicleById);
+// ============================================
+// ✅ SPECIFIC ROUTES FIRST
+// ============================================
 
-// Owner routes (protected)
+// Owner: My vehicles (BEFORE /:id)
+router.get(
+  '/my',
+  authMiddleware,
+  requireRole('owner'),
+  vehicleController.getMyVehicles
+);
+
+// Owner: Upload images (BEFORE /:id)
+router.post(
+  '/:id/images',
+  authMiddleware,
+  requireRole('owner'),
+  upload.array('images', 5),
+  vehicleController.uploadImages
+);
+
+// ============================================
+// ✅ COLLECTION ROUTES
+// ============================================
+
+// Public: Search vehicles
+router.get(
+  '/',
+  validateSearchQuery,
+  vehicleController.searchVehicles
+);
+
+// Owner: Create vehicle
 router.post(
   '/',
   authMiddleware,
@@ -24,12 +52,11 @@ router.post(
   vehicleController.createVehicle
 );
 
-router.get('/my', 
-  authMiddleware, 
-  requireRole('owner'), 
-  vehicleController.getMyVehicles
-);
+// ============================================
+// ✅ DYNAMIC ROUTES LAST
+// ============================================
 
+// Owner: Update vehicle
 router.patch(
   '/:id',
   authMiddleware,
@@ -38,6 +65,7 @@ router.patch(
   vehicleController.updateVehicle
 );
 
+// Owner: Delete vehicle
 router.delete(
   '/:id',
   authMiddleware,
@@ -45,12 +73,10 @@ router.delete(
   vehicleController.deleteVehicle
 );
 
-router.post(
-  '/:id/images',
-  authMiddleware,
-  requireRole('owner'),
-  upload.array('images', 5),
-  vehicleController.uploadImages
+// Public: Get single vehicle (LAST!)
+router.get(
+  '/:id',
+  vehicleController.getVehicleById
 );
 
 module.exports = router;

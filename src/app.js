@@ -13,6 +13,9 @@ const bookingRoutes = require('./routes/bookingRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const walletRoutes = require('./routes/walletRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const branchRoutes = require('./routes/branchRoutes');
+const documentRoutes = require('./routes/documentRoutes');
+const adminKycRoutes = require('./routes/adminKycRoutes');
 
 const app = express();
 
@@ -46,6 +49,9 @@ app.use('/api/bookings', bookingRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/branches', branchRoutes);
+app.use('/api/documents', documentRoutes);
+app.use('/api/admin/kyc', adminKycRoutes);
 
 // 404 handler
 app.use((req, res, next) => {

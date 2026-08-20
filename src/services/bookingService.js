@@ -1,9 +1,24 @@
 const bookingRepository = require('../repositories/bookingRepository');
 const vehicleRepository = require('../repositories/vehicleRepository');
+const db = require('../config/database');
 const ApiError = require('../utils/ApiError');
 
 class BookingService {
   async createBooking(bookingData, customerId) {
+    // ✅ CUSTOMER KYC CHECK
+    const kycResult = await db.query(
+      `SELECT COUNT(*) as approved_count 
+       FROM documents 
+       WHERE user_id = $1 AND status = 'approved'`,
+      [customerId]
+    );
+    
+    const approvedCount = parseInt(kycResult.rows[0].approved_count);
+    
+    if (approvedCount < 1) {
+      throw ApiError.forbidden('KYC verification required before booking a vehicle');
+    }
+    
     try {
       const booking = await bookingRepository.createWithTransaction({
         ...bookingData,
@@ -34,7 +49,6 @@ class BookingService {
       throw ApiError.notFound('Booking not found');
     }
     
-    // Authorization check
     const isCustomer = booking.customer_id === userId;
     const isOwner = booking.owner_id === userId;
     const isStaffOrAdmin = ['staff', 'admin'].includes(userRole);
@@ -61,7 +75,6 @@ class BookingService {
       throw ApiError.notFound('Booking not found');
     }
     
-    // Authorization check
     const isCustomer = booking.customer_id === userId;
     const isStaffOrAdmin = ['staff', 'admin'].includes(userRole);
     
@@ -69,27 +82,14 @@ class BookingService {
       throw ApiError.forbidden('You do not have permission to cancel this booking');
     }
     
-    // Check if already cancelled
     if (booking.status === 'cancelled') {
       throw ApiError.badRequest('Booking is already cancelled');
     }
     
-    // Check if completed
     if (booking.status === 'completed') {
       throw ApiError.badRequest('Completed booking cannot be cancelled');
     }
     
-    // Cancellation policy check
-    const now = new Date();
-    const pickupDate = new Date(booking.pickup_date);
-    const hoursUntilPickup = (pickupDate - now) / (1000 * 60 * 60);
-    
-    // Simple policy: 24 hours আগে free cancel
-    if (hoursUntilPickup < 24 && booking.status === 'confirmed') {
-      throw ApiError.badRequest('Cancellation is only allowed 24 hours before pickup');
-    }
-    
-    // Update booking status
     const updatedBooking = await bookingRepository.updateStatus(id, 'cancelled', {
       cancelReason,
       cancelledBy: userId,
@@ -106,13 +106,11 @@ class BookingService {
       throw ApiError.notFound('Booking not found');
     }
     
-    // Authorization check
     const isStaffOrAdmin = ['staff', 'admin'].includes(userRole);
     if (!isStaffOrAdmin) {
       throw ApiError.forbidden('Only staff or admin can update booking status');
     }
     
-    // Validate status transition
     const currentStatus = booking.status;
     const validTransitions = {
       'pending_payment': ['confirmed', 'cancelled', 'expired'],
@@ -129,7 +127,6 @@ class BookingService {
       );
     }
     
-    // Update status
     const updateData = {};
     
     if (newStatus === 'ongoing') {
@@ -140,9 +137,7 @@ class BookingService {
       updateData.actualReturnTime = new Date();
     }
     
-    const updatedBooking = await bookingRepository.updateStatus(id, newStatus, updateData);
-    
-    return updatedBooking;
+    return bookingRepository.updateStatus(id, newStatus, updateData);
   }
 }
 
