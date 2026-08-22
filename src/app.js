@@ -53,6 +53,7 @@ app.use('/api/branches', branchRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/admin/kyc', adminKycRoutes);
 
+
 // 404 handler
 app.use((req, res, next) => {
   next(ApiError.notFound(`Route not found: ${req.originalUrl}`));
